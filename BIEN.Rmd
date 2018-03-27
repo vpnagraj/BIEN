@@ -1,0 +1,118 @@
+---
+title: "BIEN"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+# install.packages("BIEN")
+# install.packages("leaflet")
+# install.packages("rgdal")
+# install.packages("geojsonio")
+# install.packages("htmltools")
+# install.packages("DT")
+library(BIEN)
+library(leaflet)
+library(rgdal)
+library(geojsonio)
+library(dplyr)
+library(htmltools)
+library(DT)
+```
+
+## Occurrence
+
+```{r}
+# retrieve occurrenc data for western sumac
+wsumac <- BIEN_occurrence_species(species = "Rhus copallinum")
+
+# plot points on map
+# popups for date collected where available
+leaflet(data = wsumac) %>%
+  addProviderTiles("OpenStreetMap.BlackAndWhite") %>%
+  addCircleMarkers(lng=wsumac$longitude, 
+                   lat=wsumac$latitude,
+                   col="firebrick",
+                   stroke = FALSE,
+                   opacity = 0.1,
+                   label = ~htmlEscape(date_collected))
+```
+
+## Ranges
+```{r}
+# retrieve range data as shp files 
+BIEN_ranges_species("Rhus copallinum", directory = "shp")
+
+# read in the data
+wsumac <- readOGR(dsn = path.expand("shp"))
+
+# plot the range
+leaflet(data = wsumac) %>%
+  addProviderTiles("OpenStreetMap.BlackAndWhite") %>%
+  addPolygons()
+```
+
+## Traits
+```{r}
+# read in trait data
+wsumac_traits <- BIEN_trait_species("Rhus copallinum")
+
+# aggregate and average numeric traits
+summarised <-
+  wsumac_traits %>%
+  group_by(trait_name, unit) %>%
+  summarise(average = mean(as.numeric(trait_value), na.rm = TRUE)) %>%
+  filter(!is.nan(average)) %>%
+  mutate(average = paste(round(average, 2), unit)) %>%
+  select(-unit)
+
+datatable(summarised)
+```
+
+## States
+
+```{r}
+# by states
+# query BIEN for lists of species
+state_species <- BIEN_list_state(country="United States", state=state.name)
+
+# count up number of species by state
+nspecies <- 
+  state_species %>%
+  group_by(state_province) %>%
+  tally()
+
+# get data for map
+json_api <- "https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json"
+states <- geojson_read(json_api, what = "sp")
+
+# join in species count
+states@data <-
+  states@data %>%
+  inner_join(nspecies, by = c("name" = "state_province")) %>%
+  rename(count = n)
+
+pal <- colorNumeric("plasma", domain = states@data$count)
+
+leaflet(states) %>%
+  addProviderTiles("OpenStreetMap.BlackAndWhite") %>%
+  addPolygons(color = ~pal(count),
+              stroke = FALSE,
+              label = as.character(states@data$count)) %>%
+  addLegend(pal = pal, 
+            values = ~count,
+            position = "topright",
+            labFormat = labelFormat(digits = 0)) %>%
+  setView(lat = 37, lng = -90, zoom = 3)
+```
+
+
+
+
+
+
+
+
